@@ -1,5 +1,13 @@
 fastapi
-uvicorn
+uvicorn[standard]
 httpx
-pydantic
 beautifulsoup4
+pydantic
+pydantic-settings
+SQLAlchemy
+alembic
+psycopg2-binary
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+apscheduler

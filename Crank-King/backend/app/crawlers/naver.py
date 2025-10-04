@@ -9,12 +9,14 @@ from urllib.parse import urlencode
 import httpx
 from bs4 import BeautifulSoup
 
+from app.core.config import settings
+
 BASE_SEARCH_URL = "https://search.naver.com/search.naver"
 WEB_SERP_ANCHOR = '"data-slog-container":"web_lis"'
 
 
 @dataclass
-class SerpEntry:
+class SerpEntryData:
     page: int
     rank: int
     title: str
@@ -23,13 +25,13 @@ class SerpEntry:
 
 
 @dataclass
-class SerpPage:
+class SerpPageData:
     keyword: str
     page_number: int
-    entries: List[SerpEntry]
+    entries: List[SerpEntryData]
 
 
-async def build_search_urls(query: str, pages: Iterable[int] = (1, 2)) -> List[str]:
+def build_search_urls(query: str, pages: Iterable[int] = (1, 2)) -> List[str]:
     urls: List[str] = []
     for page in pages:
         start = 1 if page == 1 else (page - 1) * 10 + 1
@@ -45,22 +47,33 @@ async def build_search_urls(query: str, pages: Iterable[int] = (1, 2)) -> List[s
 
 
 async def fetch_serp(client: httpx.AsyncClient, url: str) -> str:
-    response = await client.get(url, timeout=10.0)
+    response = await client.get(url, timeout=15.0)
     response.raise_for_status()
     return response.text
 
 
-def parse_serp(html: str, query: str, page_number: int) -> SerpPage:
+def parse_serp(html: str, query: str, page_number: int) -> SerpPageData:
     payload = _extract_web_payload(html)
     if payload is None:
         soup = BeautifulSoup(html, "html.parser")
         entries = list(_extract_entries_from_dom(soup, page_number))
     else:
         entries = list(_extract_entries_from_payload(payload, page_number))
-    return SerpPage(keyword=query, page_number=page_number, entries=entries)
+    return SerpPageData(keyword=query, page_number=page_number, entries=entries)
 
 
-def _extract_entries_from_payload(payload: dict, page_number: int) -> Iterator[SerpEntry]:
+async def crawl_keyword(query: str) -> List[SerpPageData]:
+    urls = build_search_urls(query)
+    pages: List[SerpPageData] = []
+    headers = {"User-Agent": settings.crawler_user_agent}
+    async with httpx.AsyncClient(headers=headers) as client:
+        for page_number, url in enumerate(urls, start=1):
+            html = await fetch_serp(client, url)
+            pages.append(parse_serp(html, query, page_number))
+    return pages
+
+
+def _extract_entries_from_payload(payload: dict, page_number: int) -> Iterator[SerpEntryData]:
     rank = 1
     body = payload.get("body", {})
     props = body.get("props", {})
@@ -78,7 +91,7 @@ def _extract_entries_from_payload(payload: dict, page_number: int) -> Iterator[S
 
             display_url = _derive_display_url(item)
 
-            yield SerpEntry(
+            yield SerpEntryData(
                 page=page_number,
                 rank=rank,
                 title=title_text,
@@ -160,7 +173,7 @@ def _consume_balanced_json(text: str, start: int) -> Optional[str]:
     return None
 
 
-def _extract_entries_from_dom(soup: BeautifulSoup, page_number: int) -> Iterator[SerpEntry]:
+def _extract_entries_from_dom(soup: BeautifulSoup, page_number: int) -> Iterator[SerpEntryData]:
     rank = 1
     seen_urls: set[str] = set()
     for node in _iter_result_nodes(soup):
@@ -177,7 +190,7 @@ def _extract_entries_from_dom(soup: BeautifulSoup, page_number: int) -> Iterator
         display_elem = node.select_one("a.link_url, span.sub_url, div.total_source a")
         display_text = display_elem.get_text(strip=True) if display_elem else href
 
-        yield SerpEntry(
+        yield SerpEntryData(
             page=page_number,
             rank=rank,
             title=title_text,
@@ -199,13 +212,3 @@ def _iter_result_nodes(soup: BeautifulSoup) -> Iterator[BeautifulSoup]:
             for node in matched:
                 yield node
             return
-
-
-async def crawl_keyword(query: str) -> List[SerpPage]:
-    urls = await build_search_urls(query)
-    pages: List[SerpPage] = []
-    async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; CrankKingBot/0.1)"}) as client:
-        for page_number, url in enumerate(urls, start=1):
-            html = await fetch_serp(client, url)
-            pages.append(parse_serp(html, query, page_number))
-    return pages

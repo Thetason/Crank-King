@@ -2,26 +2,34 @@
 
 ## Database Schema
 
+### users
+- `id` (UUID, PK)
+- `email` (text, unique, required)
+- `hashed_password` (text)
+- `is_active` (bool)
+- `created_at` (timestamp)
+
 ### keywords
 - `id` (UUID, PK)
+- `owner_id` (FK → users.id, cascade delete)
 - `query` (text, unique, required)
-- `category` (enum: brand, region_business, region_store, nullable)
-- `target_names` (jsonb array of strings, optional manually curated match terms)
-- `target_domains` (jsonb array of strings, optional preferred domains)
-- `notes` (text)
+- `category` (text, nullable)
+- `target_names` (jsonb array of strings)
+- `target_domains` (jsonb array of strings)
 - `status` (enum: active, paused, archived; default active)
-- `created_at` (timestamp, default now)
+- `notes` (text)
+- `created_at` (timestamp)
 - `updated_at` (timestamp)
 
 ### crawl_runs
 - `id` (UUID, PK)
 - `keyword_id` (FK → keywords.id, cascade delete)
 - `started_at` (timestamp)
-- `ended_at` (timestamp)
+- `completed_at` (timestamp nullable)
 - `status` (enum: pending, success, failure)
 - `flag` (enum: green, yellow, purple)
-- `https_issues` (jsonb, optional details on certificate failure)
-- `notes` (text, operator comment)
+- `https_issues` (jsonb key/value of failing URLs → message)
+- `notes` (text)
 
 ### serp_entries
 - `id` (UUID, PK)
@@ -34,66 +42,45 @@
 - `is_match` (boolean)
 - `match_reason` (text)
 
-### crawl_logs
-- `id` (UUID, PK)
-- `crawl_run_id` (FK → crawl_runs.id)
-- `event_time` (timestamp)
-- `level` (enum: info, warning, error)
-- `message` (text)
-
 ### http_checks
 - `id` (UUID, PK)
 - `crawl_run_id` (FK → crawl_runs.id)
 - `url` (text)
 - `protocol` (enum: http, https)
-- `status_code` (int)
+- `status_code` (int nullable)
 - `ssl_valid` (boolean)
 - `ssl_error` (text)
 - `checked_at` (timestamp)
 
-## API Surface (FastAPI)
+## REST API (FastAPI `/api/v1`)
 
-### Keyword Management
-- `POST /keywords`
-  - Payload: `query`, `category`, `target_names`, `target_domains`, `notes`
-  - Response: created keyword.
-- `GET /keywords`
-  - Query params: pagination, `status`, `flag` (latest flag filter), `search`.
-  - Response: list with latest crawl info (join on last crawl_runs).
-- `GET /keywords/{keyword_id}`
-  - Response: keyword detail + recent crawl history summary.
-- `PUT /keywords/{keyword_id}`
-  - Update mutable fields.
-- `DELETE /keywords/{keyword_id}`
-  - Soft archive (set status=archived).
+### Auth
+- `POST /auth/register` — 사용자 생성
+- `POST /auth/token` — OAuth2 Password Grant, JWT 반환
+- `GET /auth/me` — 현재 사용자 프로필
 
-### Crawl Control
-- `POST /keywords/{keyword_id}/crawl`
-  - Trigger immediate crawl job; enqueues task and returns run id.
-- `POST /crawl-runs/reschedule`
-  - Bulk trigger by filter (e.g., all green older than N days).
-- `GET /crawl-runs/{run_id}`
-  - Detailed run status, SERP entries, HTTPS checks.
+### Keywords
+- `GET /keywords` — 로그인 사용자의 키워드 목록 + 최근 플래그
+- `POST /keywords` — 키워드 생성 (`query`, `category`, `target_names`, `target_domains`, `notes`)
+- `GET /keywords/{keyword_id}` — 키워드 상세 + 최신 10개 크롤 이력
+- `PUT /keywords/{keyword_id}` — 메타데이터 수정
+- `DELETE /keywords/{keyword_id}` — 키워드 삭제(하드 삭제)
 
-### Reports
-- `GET /reports/latest`
-  - Summaries: counts by flag, recent purple cases.
-- `GET /reports/export`
-  - Generates CSV of latest keyword states.
+### Crawls
+- `POST /keywords/{keyword_id}/crawl` — 즉시 크롤 실행, 결과(SerpEntries/HttpChecks) 반환
+- `GET /crawl-runs/{run_id}` — 단일 크롤 이력 조회
 
-## Background Jobs
-- `crawl_keyword(keyword_id)` Celery/APS task
-  - Steps: fetch SERP pages, parse, match, HTTPS check, persist, finalize flag.
-- Nightly scheduler iterates over active keywords.
+## 배치 & 스케줄링
+- APScheduler `crawl_all_active_keywords` → 매일 03:00, 활성 키워드 전체 순회
+- 작업 과정: SERP Fetch → 결과 파싱 → 매칭 로직 → HTTPS 검사 → 플래그 결정 → DB 저장
 
-## Matching Strategy Notes
-- Normalize strings: lower-case, remove spaces/punctuation, Hangul Jamo decomposition.
-- Compare against `target_names` and domain list; fallback to heuristics (contains keyword + region token).
-- Adjustable similarity threshold stored in config.
+## 매칭 전략
+- 문자열 표준화: 소문자 + 공백 제거 (`normalize_text`)
+- 타깃 상호명 포함 여부 우선 → 도메인(`display_url`, `landing_url`) 부분 일치 검사
+- 타깃 정보 미입력 시 기본적으로 전체 키워드 문구 기준 탐색
 
-## HTTPS Validation Logic
-1. Check `https` URL for 200-range status and valid cert.
-2. If HTTPS fails, test HTTP fallback and record response.
-3. Record SSL error message for operator context.
-4. Flag priority: if any matched SERP entry fails HTTPS → purple.
-
+## HTTPS 판별 기준
+1. 매칭된 결과가 없으면 `green`
+2. 매칭된 결과가 있고 모든 HTTPS 검증이 통과 → `yellow`
+3. 매칭된 URL 중 하나라도 비-HTTPS 또는 SSL 오류 → `purple`
+4. 검사 결과는 `http_checks` 테이블에 저장하고, 실패 메시지는 `crawl_runs.https_issues`에 요약 저장
