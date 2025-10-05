@@ -3,6 +3,7 @@ uvicorn[standard]
 httpx
 beautifulsoup4
 pydantic
+email-validator
 pydantic-settings
 SQLAlchemy
 alembic

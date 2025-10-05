@@ -2,6 +2,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -10,6 +11,7 @@ from app.crud import keyword as crud_keyword, crawl as crud_crawl
 from app.schemas.guest import GuestSessionOut
 from app.schemas.keyword import KeywordCreate, KeywordDetail, KeywordSummary
 from app.services.crawler import execute_crawl
+from .keywords import build_export_response
 
 router = APIRouter()
 
@@ -60,6 +62,20 @@ def list_guest_keywords(
     session = _require_guest_session(db, guest_id)
     keywords = crud_keyword.get_multi(db, guest_session_id=session.id)
     return [_build_summary(db, keyword) for keyword in keywords]
+
+
+@router.get("/keywords/export")
+def export_guest_keywords(
+    *,
+    db: Session = Depends(deps.get_db),
+    guest_id: str | None = Header(default=None, alias=HEADER_KEY),
+) -> StreamingResponse:
+    session = _require_guest_session(db, guest_id)
+    keywords = crud_keyword.get_multi(
+        db, guest_session_id=session.id, limit=MAX_GUEST_KEYWORDS
+    )
+    filename = "guest_keywords.csv"
+    return build_export_response(db, keywords, filename=filename)
 
 
 @router.post("/keywords", response_model=KeywordSummary, status_code=status.HTTP_201_CREATED)

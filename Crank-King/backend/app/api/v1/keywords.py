@@ -1,7 +1,13 @@
-from typing import List
+from __future__ import annotations
+
+import csv
+import io
+import json
+from typing import Iterable, Iterator, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -12,6 +18,15 @@ from app.models.keyword import Keyword
 from app.schemas.keyword import KeywordCreate, KeywordDetail, KeywordSummary, KeywordUpdate
 
 router = APIRouter()
+
+EXPORT_HEADERS = [
+    "keyword",
+    "category",
+    "status",
+    "latest_flag",
+    "latest_run_completed_at",
+    "https_issues",
+]
 
 
 @router.get("", response_model=List[KeywordSummary])
@@ -39,6 +54,81 @@ def list_keywords(
             )
         )
     return summaries
+
+
+@router.get("/export")
+def export_keywords(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+) -> StreamingResponse:
+    keywords = _iter_keywords(db, owner_id=current_user.id)
+    return build_export_response(db, keywords, filename="keywords.csv")
+
+
+def _latest_success_run(db: Session, keyword_id: UUID) -> CrawlRun | None:
+    return (
+        db.query(CrawlRun)
+        .filter(CrawlRun.keyword_id == keyword_id, CrawlRun.status == "success")
+        .order_by(CrawlRun.started_at.desc())
+        .first()
+    )
+
+
+def build_export_row(keyword: Keyword, run: CrawlRun | None) -> List[str]:
+    https_issues = ""
+    if run and run.https_issues:
+        https_issues = json.dumps(run.https_issues, ensure_ascii=False)
+    completed_at = ""
+    if run and run.completed_at:
+        completed_at = run.completed_at.isoformat()
+    return [
+        keyword.query,
+        keyword.category or "",
+        keyword.status,
+        run.flag if run and run.flag else "",
+        completed_at,
+        https_issues,
+    ]
+
+
+def _iter_keywords(db: Session, *, owner_id: UUID) -> Iterator[Keyword]:
+    skip = 0
+    limit = 200
+    while True:
+        batch = crud_keyword.get_multi(db, owner_id=owner_id, skip=skip, limit=limit)
+        if not batch:
+            break
+        for keyword in batch:
+            yield keyword
+        if len(batch) < limit:
+            break
+        skip += limit
+
+
+def _iter_keyword_export_csv(db: Session, keywords: Iterable[Keyword]) -> Iterator[str]:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(EXPORT_HEADERS)
+    yield buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate(0)
+
+    for keyword in keywords:
+        run = _latest_success_run(db, keyword.id)
+        writer.writerow(build_export_row(keyword, run))
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+
+
+def build_export_response(
+    db: Session, keywords: Iterable[Keyword], *, filename: str
+) -> StreamingResponse:
+    csv_iter = _iter_keyword_export_csv(db, keywords)
+    byte_iter = (chunk.encode("utf-8") for chunk in csv_iter)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(byte_iter, media_type="text/csv", headers=headers)
 
 
 @router.post("", response_model=KeywordSummary, status_code=201)
