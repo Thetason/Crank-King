@@ -49,6 +49,31 @@ export default function DashboardPage() {
     },
   });
 
+  const exportMutation = useMutation({
+    mutationFn: async () => {
+      const url = mode === "auth" ? "/keywords/export" : "/guest/keywords/export";
+      const response = await apiClient.get(url, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const disposition = response.headers["content-disposition"] as string | undefined;
+      const fallbackName = mode === "auth" ? "keywords.csv" : "guest_keywords.csv";
+      const fileName = extractFilenameFromDisposition(disposition) ?? fallbackName;
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+    },
+    onError: () => {
+      if (typeof window !== "undefined") {
+        window.alert("CSV 내보내기에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      }
+    },
+  });
+
   const handleLogout = () => {
     logout();
     apiClient
@@ -100,12 +125,21 @@ export default function DashboardPage() {
               네이버 검색 2페이지를 확인하고 HTTPS 상태에 따라 플래그를 확인하세요.
             </p>
           </div>
-          <Link
-            href="/keywords/new"
-            className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            키워드 추가
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportMutation.mutate()}
+              disabled={exportMutation.isPending}
+              className="rounded border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exportMutation.isPending ? "내보내는 중..." : "CSV 다운로드"}
+            </button>
+            <Link
+              href="/keywords/new"
+              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            >
+              키워드 추가
+            </Link>
+          </div>
         </div>
         {!hydrated && <p>초기화 중...</p>}
         {hydrated && isLoading && <p>불러오는 중...</p>}
@@ -163,6 +197,23 @@ export default function DashboardPage() {
       </main>
     </div>
   );
+}
+
+function extractFilenameFromDisposition(disposition?: string) {
+  if (!disposition) return null;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch (error) {
+      console.warn("Failed to decode filename", error);
+    }
+  }
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (asciiMatch?.[1]) {
+    return asciiMatch[1];
+  }
+  return null;
 }
 
 function flagClass(flag?: string | null) {
