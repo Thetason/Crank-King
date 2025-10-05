@@ -1,18 +1,9 @@
 {
   "version": 2,
-  "installCommand": "cd frontend && npm install",
-  "buildCommand": "cd frontend && npm run build",
-  "devCommand": "cd frontend && npm run dev",
   "builds": [
     {
-      "src": "frontend/next.config.mjs",
+      "src": "frontend/package.json",
       "use": "@vercel/next"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
     }
   ]
 }
