@@ -11,6 +11,8 @@ export default function LoginPage() {
   const router = useRouter();
   const setToken = useAuthStore((state) => state.setToken);
   const setUser = useAuthStore((state) => state.setUser);
+  const setMode = useAuthStore((state) => state.setMode);
+  const setHydrated = useAuthStore((state) => state.setHydrated);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,9 @@ export default function LoginPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setUser(me.data);
-      router.push("/dashboard");
+      setMode("auth");
+      setHydrated(true);
+      router.push("/");
     } catch (err) {
       setError("로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.");
     } finally {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AuthGuard } from "@/src/components/auth-guard";
+import { useAuthStore } from "@/src/hooks/useAuth";
 import { apiClient } from "@/src/lib/api";
 
 interface CrawlRun {
@@ -40,6 +40,8 @@ interface HttpCheck {
 
 interface KeywordDetail {
   id: string;
+  owner_id?: string | null;
+  guest_session_id?: string | null;
   query: string;
   category?: string | null;
   status: string;
@@ -49,32 +51,35 @@ interface KeywordDetail {
   recent_runs: CrawlRun[];
 }
 
-async function fetchKeywordDetail(id: string) {
-  const response = await apiClient.get<KeywordDetail>(`/keywords/${id}`);
-  return response.data;
-}
-
-async function triggerCrawl(id: string) {
-  const response = await apiClient.post(`/keywords/${id}/crawl`);
-  return response.data;
-}
-
 export default function KeywordDetailPage() {
   const params = useParams<{ id: string }>();
   const keywordId = params?.id;
   const queryClient = useQueryClient();
+  const mode = useAuthStore((state) => state.mode);
+  const hydrated = useAuthStore((state) => state.hydrated);
 
   if (!keywordId) {
     notFound();
   }
 
+  const fetchKeywordDetail = async () => {
+    const url = mode === "auth" ? `/keywords/${keywordId}` : `/guest/keywords/${keywordId}`;
+    const response = await apiClient.get<KeywordDetail>(url);
+    return response.data;
+  };
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["keyword", keywordId],
-    queryFn: () => fetchKeywordDetail(keywordId!),
+    queryKey: ["keyword", keywordId, mode],
+    queryFn: fetchKeywordDetail,
+    enabled: hydrated,
   });
 
   const crawlMutation = useMutation({
-    mutationFn: () => triggerCrawl(keywordId!),
+    mutationFn: async () => {
+      const url = mode === "auth" ? `/keywords/${keywordId}/crawl` : `/guest/keywords/${keywordId}/crawl`;
+      const response = await apiClient.post(url);
+      return response.data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keyword", keywordId] });
       queryClient.invalidateQueries({ queryKey: ["keywords"] });
@@ -82,12 +87,12 @@ export default function KeywordDetailPage() {
   });
 
   return (
-    <AuthGuard>
-      <div className="mx-auto min-h-screen max-w-5xl px-6 py-10">
-        <Link href="/dashboard" className="text-sm text-indigo-600">← 대시보드로 돌아가기</Link>
-        {isLoading && <p className="mt-6">불러오는 중...</p>}
-        {error && <p className="mt-6 text-red-600">데이터를 가져오지 못했습니다.</p>}
-        {data && (
+    <div className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+      <Link href="/" className="text-sm text-indigo-600">← 목록으로</Link>
+      {!hydrated && <p className="mt-6">초기화 중...</p>}
+      {hydrated && isLoading && <p className="mt-6">불러오는 중...</p>}
+      {hydrated && error && <p className="mt-6 text-red-600">데이터를 가져오지 못했습니다.</p>}
+      {hydrated && data && (
           <div className="mt-6 space-y-8">
             <div className="rounded border border-slate-200 bg-white p-6 shadow">
               <div className="flex items-center justify-between">
@@ -187,8 +192,7 @@ export default function KeywordDetailPage() {
             </section>
           </div>
         )}
-      </div>
-    </AuthGuard>
+    </div>
   );
 }
 

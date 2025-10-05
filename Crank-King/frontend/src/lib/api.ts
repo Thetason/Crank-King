@@ -14,6 +14,12 @@ apiClient.interceptors.request.use((config) => {
     if (token) {
       config.headers = config.headers ?? {};
       config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      const guestId = localStorage.getItem("ck_guest_id");
+      if (guestId) {
+        config.headers = config.headers ?? {};
+        config.headers["X-Guest-Id"] = guestId;
+      }
     }
   }
   return config;

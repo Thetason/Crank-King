@@ -9,10 +9,15 @@
 - `is_active` (bool)
 - `created_at` (timestamp)
 
+### guest_sessions
+- `id` (UUID, PK)
+- `created_at` (timestamp)
+
 ### keywords
 - `id` (UUID, PK)
-- `owner_id` (FK → users.id, cascade delete)
-- `query` (text, unique, required)
+- `owner_id` (FK → users.id, nullable)
+- `guest_session_id` (FK → guest_sessions.id, nullable)
+- `query` (text, required, unique per owner/guest)
 - `category` (text, nullable)
 - `target_names` (jsonb array of strings)
 - `target_domains` (jsonb array of strings)
@@ -20,6 +25,7 @@
 - `notes` (text)
 - `created_at` (timestamp)
 - `updated_at` (timestamp)
+- `CHECK`: 반드시 owner 혹은 guest 중 하나만 채워져야 함
 
 ### crawl_runs
 - `id` (UUID, PK)
@@ -59,12 +65,20 @@
 - `POST /auth/token` — OAuth2 Password Grant, JWT 반환
 - `GET /auth/me` — 현재 사용자 프로필
 
-### Keywords
+### Keywords (로그인 사용자 전용)
 - `GET /keywords` — 로그인 사용자의 키워드 목록 + 최근 플래그
 - `POST /keywords` — 키워드 생성 (`query`, `category`, `target_names`, `target_domains`, `notes`)
 - `GET /keywords/{keyword_id}` — 키워드 상세 + 최신 10개 크롤 이력
 - `PUT /keywords/{keyword_id}` — 메타데이터 수정
 - `DELETE /keywords/{keyword_id}` — 키워드 삭제(하드 삭제)
+
+### Guest Mode
+- `POST /guest/session` — 게스트 세션 발급 또는 갱신 (응답 및 헤더로 `X-Guest-Id` 반환)
+- `GET /guest/keywords` — 게스트 키워드 목록 (최대 10개)
+- `POST /guest/keywords` — 게스트 키워드 추가 (limit 초과 시 403)
+- `GET /guest/keywords/{keyword_id}` — 게스트 키워드 상세 + 크롤 이력
+- `DELETE /guest/keywords/{keyword_id}` — 게스트 키워드 삭제
+- `POST /guest/keywords/{keyword_id}/crawl` — 게스트 키워드 수동 크롤
 
 ### Crawls
 - `POST /keywords/{keyword_id}/crawl` — 즉시 크롤 실행, 결과(SerpEntries/HttpChecks) 반환

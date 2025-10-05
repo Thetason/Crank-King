@@ -1,4 +1,5 @@
-from typing import List, Optional
+from typing import List, Optional, Union
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -10,24 +11,47 @@ def get(db: Session, keyword_id):
     return db.query(Keyword).filter(Keyword.id == keyword_id).first()
 
 
-def get_by_query(db: Session, query: str) -> Optional[Keyword]:
-    return db.query(Keyword).filter(Keyword.query == query).first()
+def get_by_query(
+    db: Session,
+    query: str,
+    *,
+    owner_id: Optional[Union[str, UUID]] = None,
+    guest_session_id: Optional[Union[str, UUID]] = None,
+) -> Optional[Keyword]:
+    stmt = db.query(Keyword).filter(Keyword.query == query)
+    if owner_id is not None:
+        stmt = stmt.filter(Keyword.owner_id == owner_id)
+    if guest_session_id is not None:
+        stmt = stmt.filter(Keyword.guest_session_id == guest_session_id)
+    return stmt.first()
 
 
-def get_multi(db: Session, owner_id, skip: int = 0, limit: int = 100) -> List[Keyword]:
-    return (
-        db.query(Keyword)
-        .filter(Keyword.owner_id == owner_id)
-        .order_by(Keyword.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+def get_multi(
+    db: Session,
+    *,
+    owner_id: Optional[Union[str, UUID]] = None,
+    guest_session_id: Optional[Union[str, UUID]] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[Keyword]:
+    stmt = db.query(Keyword)
+    if owner_id is not None:
+        stmt = stmt.filter(Keyword.owner_id == owner_id)
+    if guest_session_id is not None:
+        stmt = stmt.filter(Keyword.guest_session_id == guest_session_id)
+    return stmt.order_by(Keyword.created_at.desc()).offset(skip).limit(limit).all()
 
 
-def create(db: Session, owner_id, obj_in: KeywordCreate) -> Keyword:
+def create(
+    db: Session,
+    *,
+    owner_id: Optional[Union[str, UUID]] = None,
+    guest_session_id: Optional[Union[str, UUID]] = None,
+    obj_in: KeywordCreate,
+) -> Keyword:
     keyword = Keyword(
         owner_id=owner_id,
+        guest_session_id=guest_session_id,
         query=obj_in.query,
         category=obj_in.category,
         target_names=obj_in.target_names,
@@ -55,3 +79,7 @@ def remove(db: Session, keyword: Keyword) -> Keyword:
     db.delete(keyword)
     db.commit()
     return keyword
+
+
+def count_for_guest(db: Session, guest_session_id: Union[str, UUID]) -> int:
+    return db.query(Keyword).filter(Keyword.guest_session_id == guest_session_id).count()

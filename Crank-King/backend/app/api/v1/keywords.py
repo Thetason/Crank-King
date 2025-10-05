@@ -45,8 +45,8 @@ def list_keywords(
 def create_keyword(
     *, db: Session = Depends(deps.get_db), current_user=Depends(deps.get_current_user), payload: KeywordCreate
 ) -> KeywordSummary:
-    existing = crud_keyword.get_by_query(db, payload.query)
-    if existing and existing.owner_id == current_user.id:
+    existing = crud_keyword.get_by_query(db, payload.query, owner_id=current_user.id)
+    if existing:
         raise HTTPException(status_code=400, detail="Keyword already exists")
     keyword = crud_keyword.create(db, owner_id=current_user.id, obj_in=payload)
     return KeywordSummary(**KeywordSummary.model_validate(keyword).model_dump())

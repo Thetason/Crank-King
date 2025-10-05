@@ -15,6 +15,7 @@ Crank King은 네이버 검색 결과 2페이지까지를 자동으로 수집해
 - 플래그 산정 규칙 (green / yellow / purple) 및 HTTPS 이슈 로그
 - 크롤 이력·SERP 상세 화면, CSV 내보내기 준비(추후 확장)
 - APScheduler로 매일 새벽 자동 크롤 작업 예약
+- 회원가입 없이도 이용 가능한 게스트 모드 제공(최대 10개 키워드 저장)
 
 ## 빠른 시작 (로컬 Docker)
 ```bash

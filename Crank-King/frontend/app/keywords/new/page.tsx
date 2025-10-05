@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import { AuthGuard } from "@/src/components/auth-guard";
+import { useAuthStore } from "@/src/hooks/useAuth";
 import { apiClient } from "@/src/lib/api";
 
 interface KeywordPayload {
@@ -15,11 +15,6 @@ interface KeywordPayload {
   notes?: string;
 }
 
-async function createKeyword(payload: KeywordPayload) {
-  const response = await apiClient.post("/keywords", payload);
-  return response.data;
-}
-
 export default function NewKeywordPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -28,13 +23,27 @@ export default function NewKeywordPage() {
   const [targetDomains, setTargetDomains] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const mode = useAuthStore((state) => state.mode);
+  const hydrated = useAuthStore((state) => state.hydrated);
+
+  const createKeyword = async (payload: KeywordPayload) => {
+    const url = mode === "auth" ? "/keywords" : "/guest/keywords";
+    const response = await apiClient.post(url, payload);
+    return response.data;
+  };
 
   const mutation = useMutation({
     mutationFn: createKeyword,
     onSuccess: (data) => {
       router.push(`/keywords/${data.id}`);
     },
-    onError: () => setError("키워드를 생성하지 못했습니다."),
+    onError: (err: any) => {
+      if (mode === "guest" && err?.response?.status === 403) {
+        setError("게스트 모드에서는 최대 10개의 키워드만 저장할 수 있습니다.");
+        return;
+      }
+      setError("키워드를 생성하지 못했습니다.");
+    },
   });
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -50,11 +59,13 @@ export default function NewKeywordPage() {
   };
 
   return (
-    <AuthGuard>
-      <div className="mx-auto min-h-screen max-w-3xl px-6 py-10">
-        <h1 className="text-2xl font-semibold text-slate-900">새 키워드 추가</h1>
-        <p className="mt-2 text-sm text-slate-500">대상 사이트의 상호나 도메인을 입력해 매칭 정확도를 높이세요.</p>
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6 rounded border border-slate-200 bg-white p-6 shadow">
+    <div className="mx-auto min-h-screen max-w-3xl px-6 py-10">
+      <h1 className="text-2xl font-semibold text-slate-900">새 키워드 추가</h1>
+      <p className="mt-2 text-sm text-slate-500">
+        대상 사이트의 상호나 도메인을 입력해 매칭 정확도를 높이세요.
+        {mode === "guest" && hydrated && " (게스트 모드는 최대 10개의 키워드를 저장할 수 있습니다.)"}
+      </p>
+      <form onSubmit={handleSubmit} className="mt-8 space-y-6 rounded border border-slate-200 bg-white p-6 shadow">
           <div>
             <label className="block text-sm font-medium text-slate-700">검색 키워드</label>
             <input
@@ -112,9 +123,8 @@ export default function NewKeywordPage() {
           >
             {mutation.isPending ? "저장 중..." : "저장"}
           </button>
-        </form>
-      </div>
-    </AuthGuard>
+      </form>
+    </div>
   );
 }
 

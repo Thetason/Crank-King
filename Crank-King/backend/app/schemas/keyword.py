@@ -30,7 +30,8 @@ class KeywordUpdate(BaseModel):
 
 class KeywordRead(KeywordBase):
     id: UUID
-    owner_id: UUID
+    owner_id: Optional[UUID] = None
+    guest_session_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 
