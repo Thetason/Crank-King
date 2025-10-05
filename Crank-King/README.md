@@ -48,6 +48,10 @@ npm install
 npm run dev
 ```
 
+## 배포 가이드
+- Render + Vercel 조합으로 백엔드/프런트 배포하는 방법은 `deploy/README.md` 참고
+- Render는 `deploy/render.yaml` 블루프린트를 사용하면 Postgres + FastAPI 서비스를 한 번에 생성할 수 있습니다.
+
 ## API 개요
 - `POST /api/v1/auth/register`: 회원가입
 - `POST /api/v1/auth/token`: JWT 발급 (OAuth2 Password)
